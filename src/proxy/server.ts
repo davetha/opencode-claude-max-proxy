@@ -12,6 +12,7 @@ import { exec as execCallback } from "child_process"
 import { promisify } from "util"
 
 import { randomUUID } from "crypto"
+import { existsSync } from "fs"
 import { withClaudeLogContext } from "../logger"
 import { fuzzyMatchAgentName } from "./agentMatch"
 import { buildAgentDefinitions } from "./agentDefs"
@@ -270,7 +271,9 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}): ProxyServe
         const stream = body.stream ?? true
         const adapter = openCodeAdapter
         const requestedProfile = resolveProfile(finalConfig, adapter.getProfileId(c))
-        const workingDirectory = process.env.CLAUDE_PROXY_WORKDIR || adapter.extractWorkingDirectory(body) || process.cwd()
+        const envCwd = process.env.CLAUDE_PROXY_WORKDIR
+        const clientCwd = adapter.extractWorkingDirectory(body)
+        const workingDirectory = envCwd || (clientCwd && existsSync(clientCwd) ? clientCwd : process.cwd())
         const opencodeSessionId = adapter.getSessionId(c)
         const lineageResult = lookupSession(opencodeSessionId, body.messages || [], workingDirectory, requestedProfile.id)
         const isResume = lineageResult.type === "continuation" || lineageResult.type === "compaction"
