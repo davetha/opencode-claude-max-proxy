@@ -14,12 +14,15 @@ COPY src/ ./src/
 RUN rm -rf dist && bun build bin/cli.ts src/proxy/server.ts --outdir dist --target node --splitting --external @anthropic-ai/claude-agent-sdk --entry-naming '[name].js'
 
 # ---- Runtime stage ----
-FROM node:22-alpine
+FROM node:22-slim
 
-RUN deluser --remove-home node 2>/dev/null; \
-    adduser -D -u 1000 claude \
+RUN userdel --remove node 2>/dev/null; \
+    useradd -m -u 1000 claude \
     && mkdir -p /home/claude/.claude /home/claude/.config/meridian \
-    && chown -R claude:claude /home/claude
+    && chown -R claude:claude /home/claude \
+    && apt-get update && apt-get install -y --no-install-recommends \
+       bash curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @anthropic-ai/claude-code \
     && npm cache clean --force

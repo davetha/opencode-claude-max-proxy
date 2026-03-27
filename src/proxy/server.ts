@@ -35,6 +35,7 @@ import {
   isBasicAuthEnabled,
 } from "./auth"
 import { resolveProfile } from "./profiles"
+import { ensureTokenFresh, getCredentialsPath, getCredentialsPathsForProfiles, getOAuthClientId, startTokenMonitor } from "./tokenRefresh"
 import {
   computeLineageHash,
   hashMessage,
@@ -280,6 +281,10 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}): ProxyServe
         const isUndo = lineageResult.type === "undo"
         const cachedSession = lineageResult.type !== "diverged" ? lineageResult.session : undefined
         const effectiveProfile = resolveProfile(finalConfig, cachedSession?.profileId || requestedProfile.id)
+        // Refresh OAuth token if expiring soon (before SDK query)
+        const credPath = getCredentialsPath(effectiveProfile.env.CLAUDE_CONFIG_DIR)
+        await ensureTokenFresh(credPath, getOAuthClientId())
+
         const authStatus = await getClaudeAuthStatusAsync(effectiveProfile.env)
         let model = mapModelToClaudeModel(body.model || "sonnet", authStatus?.subscriptionType)
 
@@ -1327,6 +1332,10 @@ export async function startProxyServer(config: Partial<ProxyConfig> = {}): Promi
   claudeExecutable = await resolveClaudeExecutableAsync()
   const { app, config: finalConfig } = createProxyServer(config)
 
+  // Start background OAuth token refresh for all Claude Max profiles
+  const credentialsPaths = getCredentialsPathsForProfiles(finalConfig.profiles ?? [])
+  const tokenMonitor = startTokenMonitor(credentialsPaths, getOAuthClientId())
+
   const server = serve({
     fetch: app.fetch,
     port: finalConfig.port,
@@ -1360,6 +1369,7 @@ export async function startProxyServer(config: Partial<ProxyConfig> = {}): Promi
     server,
     config: finalConfig,
     async close() {
+      tokenMonitor.stop()
       await new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()))
       })
